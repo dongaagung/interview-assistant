@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Interview Assistant</string>
+	<key>CFBundleExecutable</key>
+	<string>InterviewAssistant</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>rakyat.interviewassistant</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>InterviewAssistant</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>26.0</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Interview Assistant uses the microphone to caption what you say.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Interview Assistant captures meeting app audio to caption the interviewer.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Interview Assistant transcribes the interview on this Mac to show live captions.</string>
+</dict>
+</plist>
