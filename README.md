@@ -16,15 +16,22 @@ Anthropic by default, or any OpenAI-compatible one.
   as soon as the interviewer stops talking. The goal is under 2 seconds from
   the end of the question to the first hint word. Press **⌃⌥H** in any app
   to hint the last question by hand. A floating overlay keeps captions and
-  hints above the meeting window.
+  hints above the meeting window. While you answer, it shows how long you've
+  been talking and how many fillers ("um", "eh", "anu", "you know") the
+  captions caught; past two minutes it turns orange. Set **Translate
+  questions into** in Setup to see each hinted question in your language too.
 - **Prep**: generates the questions you're most likely to be asked, with
   answers built from your profile, CV and STAR stories. You can edit them.
   During a live interview, a question that clearly matches one of these
-  shows its prepared answer right away.
-- **Practice**: an AI interviewer asks questions based on your profile. You
-  answer by voice or by typing, then get a feedback report.
+  shows its prepared answer right away. **Questions to ask them** writes your
+  questions for "Do you have any questions for us?".
+- **Practice**: an AI interviewer asks questions based on your profile, or
+  from your prep sheet with real interview questions first. You answer by
+  voice or by typing, then get a feedback report.
 - **Sessions**: every live interview and practice run is saved with its
-  transcript, hints and feedback.
+  transcript, hints and feedback. **Add questions to Prep** turns the
+  questions an interview asked into clean prep-sheet entries, so they show
+  instantly next time.
 - **Setup**: your profile, CV import (PDF, Word, RTF or plain text), STAR
   stories, AI provider, hint style (short guide or full answer), speech
   language and extra vocabulary.

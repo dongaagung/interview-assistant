@@ -47,6 +47,10 @@ struct OpenAICompatibleRequestTests {
         #expect((try json(deepSeek.body(for: hint, stream: true, json: nil))["thinking"] as? [String: String]) == ["type": "disabled"])
         #expect((try json(deepSeek.body(for: detection, stream: false, json: .object))["thinking"] as? [String: String]) == ["type": "disabled"])
         #expect(try json(deepSeek.body(for: practice, stream: true, json: nil))["thinking"] == nil)
+        let translation = QuestionTranslator(client: deepSeek, systemPrompt: "S").request(question: "Q")
+        let translationBody = try json(deepSeek.body(for: translation, stream: false, json: nil))
+        #expect(translationBody["model"] as? String == "fast-model")
+        #expect((translationBody["thinking"] as? [String: String]) == ["type": "disabled"])
         #expect(try json(client.body(for: hint, stream: true, json: nil))["thinking"] == nil, "other servers may reject the field")
     }
 
@@ -132,6 +136,18 @@ struct OpenAICompatibleHTTPTests {
         #expect(formats == ["json_object"])
     }
 
+    @Test func translatorReturnsNilWhenTheQuestionIsAlreadyInThatLanguage() async throws {
+        ProviderStub.respond([
+            (200, #"{"choices":[{"message":{"content":" Bagaimana Anda merancang rate limiter? \n"}}]}"#),
+            (200, #"{"choices":[{"message":{"content":"Ceritakan tentang diri Anda"}}]}"#),
+        ])
+        let translator = QuestionTranslator(client: client, systemPrompt: "S")
+        #expect(try await translator.translate("How would you design a rate limiter?") == "Bagaimana Anda merancang rate limiter?")
+        #expect(try await translator.translate("Ceritakan tentang diri Anda.") == nil)
+        let messages = (try? JSONSerialization.jsonObject(with: ProviderStub.bodies[0]) as? [String: Any])?["messages"] as? [[String: String]]
+        #expect(messages?.last?["content"] == "How would you design a rate limiter?")
+    }
+
     @Test func rejectedKeyExplainsWhereToFixIt() async {
         ProviderStub.respond([(401, #"{"error":{"message":"Invalid API Key"}}"#)])
         do {
@@ -215,6 +231,7 @@ struct ProviderSettingsTests {
     @Test func olderSettingsKeepClaude() throws {
         let settings = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"localeIdentifier":"id-ID"}"#.utf8))
         #expect(settings.aiProvider == .anthropic)
+        #expect(settings.questionTranslationLanguage.isEmpty, "translation stays off until asked for")
         #expect(settings.models(for: .groq).baseURL == "https://api.groq.com/openai/v1")
     }
 
@@ -266,6 +283,7 @@ struct ClaudePurposeTests {
         (LLMRequest.Purpose.practice, "claude-sonnet-5-5", "between_tools", "low"),
         (.feedback, "claude-sonnet-5-5", "adaptive", "medium"),
         (.hint, "claude-haiku-5-5", "disabled", "low"),
+        (.translation, "claude-haiku-5-5", "disabled", "low"),
     ])
     func eachPurposeKeepsItsClaudeSettings(purpose: LLMRequest.Purpose, model: String, thinking: String, effort: String) throws {
         let request = LLMRequest(purpose: purpose, system: "S", messages: [.init(role: .user, content: "hi")], maxTokens: 10)

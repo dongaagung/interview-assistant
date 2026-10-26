@@ -21,6 +21,8 @@ struct LiveHint: Identifiable, Equatable {
     var firstTokenAt: Date?
     /// Shown straight from the prep sheet, without an API call.
     var isPrepared = false
+    /// The question in the user's language, when they asked for translations.
+    var translation: String?
 
     /// What the user waits, from the end of the question to the first words
     /// on screen. Target: under 2 s.
@@ -54,6 +56,8 @@ final class LiveSession {
         var profile: Profile
         var stories: [StarStory]
         var hintStyle = HintStyle.guide
+        /// Language to translate each hinted question into; empty is off.
+        var translationLanguage = ""
         var extraVocabulary: [String] = []
         var prefersTermAccuracy = false
         var prepItems: [PrepItem] = []
@@ -65,6 +69,8 @@ final class LiveSession {
     private(set) var phase = Phase.idle
     private(set) var transcript = Transcript()
     private(set) var hints: [LiveHint] = []
+    /// How long the user's current answer has run, and its filler words.
+    private(set) var answer = AnswerMeter()
     /// Problems worth telling the user about; the session may still be running.
     private(set) var warnings: [String] = []
     /// What a slow start is doing, such as downloading the speech model.
@@ -92,6 +98,9 @@ final class LiveSession {
     private var turns = TurnTracker()
     private var hintGenerator: HintGenerator?
     private var detector: QuestionDetector?
+    private var translator: QuestionTranslator?
+    /// One per hint whose question is being or was translated.
+    private var translationTasks: [LiveHint.ID: Task<Void, Never>] = [:]
     private var prepMatcher = PrepMatcher(items: [])
     private var lastHintRequest = Date.distantPast
     private var sessionID = UUID()
@@ -128,6 +137,7 @@ final class LiveSession {
         transcript = Transcript()
         hints = []
         warnings = []
+        answer = AnswerMeter()
         turns = TurnTracker()
         sessionID = UUID()
         lastAutosaveSignature = 0
@@ -139,6 +149,7 @@ final class LiveSession {
             .filter { !$0.isEmpty }.joined(separator: " · ")
 
         prepMatcher = PrepMatcher(items: configuration.prepItems)
+        translationTasks = [:]
         setUpAI(configuration)
 
         startupStatus = "Preparing speech recognition…"
@@ -215,6 +226,8 @@ final class LiveSession {
         autosaveTask?.cancel()
         detectTask?.cancel()
         hintTask?.cancel()
+        translationTasks.values.forEach { $0.cancel() }
+        translationTasks = [:]
         hints.removeAll { !$0.isConfirmed }
         for index in hints.indices { hints[index].isStreaming = false }
         let session = snapshot(ended: true)
@@ -268,6 +281,7 @@ final class LiveSession {
             warnings.append("No hints: \(reason) Captions still work.")
             hintGenerator = nil
             detector = nil
+            translator = nil
             return
         }
         do {
@@ -281,6 +295,8 @@ final class LiveSession {
                 client: client, systemPrompt: hintPrompt, maxTokens: configuration.hintStyle.maxTokens)
             detector = QuestionDetector(
                 client: client, systemPrompt: try PromptTemplate.load("question_detector").render([:]))
+            let language = configuration.translationLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
+            translator = language.isEmpty ? nil : try QuestionTranslator(client: client, language: language)
         } catch {
             warn(error)
         }
@@ -356,11 +372,16 @@ final class LiveSession {
             transcript.discardVolatile(.me)
             return
         }
+        if speaker == .me, !update.isFinal, !update.text.trimmingCharacters(in: .whitespaces).isEmpty {
+            answer.candidateSpeaking(at: now)
+        }
         guard let line = transcript.apply(update, from: speaker, at: now) else { return }
         switch speaker {
         case .me:
+            answer.candidateSaid(line.text, at: now)
             turns.candidateSaid(line.text)
         case .interviewer:
+            answer.interviewerSaid(line.text)
             let questionEnded = recentSpeechEnd(before: now)
             switch turns.interviewerSaid(line.text) {
             case .none: break
@@ -440,6 +461,7 @@ final class LiveSession {
         hint.isPrepared = true
         hints.append(hint)
         turns.confirmHint(for: turnID)
+        translateIfShown(hint.id)
     }
 
     private func resolve(_ hintID: LiveHint.ID, turnID: UUID, question: String?) {
@@ -448,6 +470,7 @@ final class LiveSession {
             hints[index].isConfirmed = true
             hints[index].question = question
             turns.confirmHint(for: turnID)
+            translateIfShown(hintID)
         } else {
             if activeHintID == hintID { hintTask?.cancel() }
             hints.remove(at: index)
@@ -458,8 +481,29 @@ final class LiveSession {
         guard let index = hints.firstIndex(where: { $0.id == hintID }) else { return }
         if hints[index].firstTokenAt == nil {
             hints[index].firstTokenAt = .now
+            translateIfShown(hintID)
         }
         hints[index].text += delta
+    }
+
+    /// Translates a hint's question once the hint is on screen. Waiting for
+    /// its first words keeps the translation from competing with them.
+    private func translateIfShown(_ hintID: LiveHint.ID) {
+        guard let translator, translationTasks[hintID] == nil,
+              let hint = hints.first(where: { $0.id == hintID }),
+              hint.isConfirmed, hint.isPrepared || hint.firstTokenAt != nil
+        else { return }
+        let question = hint.question
+        translationTasks[hintID] = Task { [weak self] in
+            // A failed translation just leaves the card without one.
+            guard let translation = try? await translator.translate(question) else { return }
+            self?.setTranslation(translation, for: hintID)
+        }
+    }
+
+    private func setTranslation(_ translation: String, for hintID: LiveHint.ID) {
+        guard let index = hints.firstIndex(where: { $0.id == hintID }) else { return }
+        hints[index].translation = translation
     }
 
     private func finish(_ hintID: LiveHint.ID, error: (any Error)?) {

@@ -59,6 +59,9 @@ private struct SessionDetail: View {
     @ViewState private var isWritingFeedback = false
     @ViewState private var feedbackError: String?
     @ViewState private var confirmsDelete = false
+    @ViewState private var isAddingToPrep = false
+    @ViewState private var prepMessage: String?
+    @ViewState private var prepError: String?
     @Environment(\.textScale) private var scale
 
     enum Tab: String, CaseIterable, Identifiable {
@@ -78,6 +81,21 @@ private struct SessionDetail: View {
                 .labelsHidden()
                 .frame(maxWidth: 320)
                 Spacer()
+                if isAddingToPrep {
+                    ProgressView().controlSize(.small)
+                } else if let prepError {
+                    Label(prepError, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption).foregroundStyle(.orange).lineLimit(2)
+                } else if let prepMessage {
+                    Text(prepMessage).font(.caption).foregroundStyle(.secondary)
+                }
+                Button {
+                    Task { await addQuestionsToPrep() }
+                } label: {
+                    Label("Add questions to Prep", systemImage: "text.badge.plus")
+                }
+                .help("Adds the questions this interview asked to your prep sheet, restated cleanly, with answers that build on yours. Next time they show instantly.")
+                .disabled(isAddingToPrep || !store.isAIReady || !session.transcript.contains { $0.speaker == .interviewer })
                 Button(role: .destructive) {
                     confirmsDelete = true
                 } label: {
@@ -156,6 +174,27 @@ private struct SessionDetail: View {
                 Text(line.text).font(.scaled(.body, scale)).textSelection(.enabled)
             }
         }
+    }
+
+    private func addQuestionsToPrep() async {
+        guard let client = store.aiClient() else { return }
+        isAddingToPrep = true
+        prepMessage = nil
+        prepError = nil
+        do {
+            let generator = try AskedQuestionsGenerator(
+                client: client, profile: store.profile, stories: store.stories, prepItems: store.prepItems)
+            let items = try await generator.generate(from: session)
+            store.prepItems += items
+            prepMessage = switch items.count {
+            case 0: "No new questions: your prep sheet already has them."
+            case 1: "Added 1 question to Prep."
+            default: "Added \(items.count) questions to Prep."
+            }
+        } catch {
+            prepError = error.localizedDescription
+        }
+        isAddingToPrep = false
     }
 
     private func writeFeedback() async {

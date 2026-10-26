@@ -57,6 +57,8 @@ final class PracticeSession {
         var stories: [StarStory]
         var extraVocabulary: [String] = []
         var prefersTermAccuracy = false
+        /// Prep-sheet questions to ask. Empty lets the interviewer choose.
+        var prepItems: [PrepItem] = []
     }
 
     private(set) var phase = Phase.idle
@@ -124,6 +126,7 @@ final class PracticeSession {
                     "interview_type": configuration.interviewType.promptDescription,
                     "question_count": String(questionCount),
                     "interview_language": Self.languageName(locale),
+                    "prep_questions": PromptContext.prepQuestions(configuration.prepItems),
                 ]))
             feedbackGenerator = try FeedbackGenerator(
                 client: client, profile: configuration.profile, stories: configuration.stories)

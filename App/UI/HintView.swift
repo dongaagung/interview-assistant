@@ -64,6 +64,12 @@ private struct HintCard: View {
                 .font(.scaled(.callout, scale))
                 .foregroundStyle(.secondary)
                 .lineLimit(compact ? 2 : 4)
+            if let translation = hint.translation {
+                Label(translation, systemImage: "character.bubble")
+                    .font(.scaled(.callout, scale))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(compact ? 3 : 5)
+            }
             if hint.text.isEmpty && hint.isStreaming {
                 ProgressView().controlSize(.small)
             } else {

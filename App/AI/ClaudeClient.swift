@@ -295,7 +295,7 @@ extension ClaudeClient: LLMClient {
             messages: request.messages)
         let format = request.jsonSchema.map { MessageRequest.OutputConfig.Format(schema: $0) }
         switch request.purpose {
-        case .hint, .detection:
+        case .hint, .detection, .translation:
             // Latency budget: Haiku with thinking off at low effort.
             message.thinking = .disabled
             message.outputConfig = .init(effort: "low", format: format)

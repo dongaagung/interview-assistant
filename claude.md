@@ -18,13 +18,15 @@ Practice Mode: AI interviewer + feedback report.
 - App/AI: LLMClient protocol (provider-neutral requests by purpose), ClaudeClient
   (Anthropic, URLSession SSE), OpenAICompatibleClient (OpenAI, Gemini, DeepSeek, Groq,
   OpenRouter, Ollama, custom; JSON falls back schema → json_object → instructions),
-  AIProvider, QuestionDetector, HintGenerator, PracticeInterviewer + FeedbackGenerator,
-  PrepGenerator, PromptTemplate (loads prompts/)
+  AIProvider, QuestionDetector, HintGenerator, QuestionTranslator, PracticeInterviewer +
+  FeedbackGenerator, PrepGenerator, QuestionsToAskGenerator, AskedQuestionsGenerator
+  (session → prep items), PromptTemplate (loads prompts/)
 - App/Live: LiveSession (audio → captions → detection → hints; autosaves every
   10 s), TurnTracker (+ early hints: at a 0.55 s pause, a clear question in the
   volatile text is hinted before the final text, which takes 1–2 s more; kept
   only if the final text matches), PauseDetector (end of speech from audio level,
-  also the start of the latency label), GlobalHotKey (⌃⌥H "Hint now", Carbon), PrepMatcher (strict
+  also the start of the latency label), AnswerMeter (answer timer + filler count
+  from the mic's final captions), GlobalHotKey (⌃⌥H "Hint now", Carbon), PrepMatcher (strict
   keyword match; macOS sentence embeddings mismatched questions, so not used)
 - App/Practice: PracticeSession (AI interviewer, voice answers, feedback)
 - App/UI: OverlayPanel (NSPanel), CaptionView, HintView, SetupView, LiveView,

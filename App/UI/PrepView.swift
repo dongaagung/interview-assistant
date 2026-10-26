@@ -11,6 +11,8 @@ struct PrepView: View {
     @ViewState private var writtenSoFar = 0
     @ViewState private var error: String?
     @ViewState private var confirmsReplace = false
+    @ViewState private var isWritingQuestions = false
+    @ViewState private var confirmsReplaceQuestions = false
     @ViewState private var expandedID: PrepItem.ID?
 
     var body: some View {
@@ -36,6 +38,9 @@ struct PrepView: View {
                 ProgressView().controlSize(.small)
                 Text(writtenSoFar == 0 ? "Thinking…" : "Writing… \(writtenSoFar) questions so far")
                     .foregroundStyle(.secondary)
+            } else if isWritingQuestions {
+                ProgressView().controlSize(.small)
+                Text("Writing your questions…").foregroundStyle(.secondary)
             }
             if let error {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -51,16 +56,31 @@ struct PrepView: View {
                 Label("Add question", systemImage: "plus")
             }
             .disabled(isGenerating)
-            Button(store.prepItems.isEmpty ? "Generate" : "Regenerate") {
-                if store.prepItems.isEmpty { Task { await generate() } } else { confirmsReplace = true }
+            Button {
+                if hasQuestionsToAsk { confirmsReplaceQuestions = true } else { Task { await writeQuestionsToAsk() } }
+            } label: {
+                Label("Questions to ask them", systemImage: "questionmark.bubble")
+            }
+            .help("Write the questions you ask when the interviewer says \u{201C}Do you have any questions for us?\u{201D}")
+            .disabled(isBusy || !store.isAIReady)
+            .confirmationDialog(
+                "Replace your questions for the interviewer, including any edits?",
+                isPresented: $confirmsReplaceQuestions
+            ) {
+                Button("Replace", role: .destructive) { Task { await writeQuestionsToAsk() } }
+            }
+            Button(replacedCount == 0 ? "Generate" : "Regenerate") {
+                if replacedCount == 0 { Task { await generate() } } else { confirmsReplace = true }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(isGenerating || !store.isAIReady)
+            .disabled(isBusy || !store.isAIReady)
             .confirmationDialog(
-                "Replace your \(store.prepItems.count) prepared answers, including any edits?",
+                "Replace your \(replacedCount) generated answers, including any edits?",
                 isPresented: $confirmsReplace
             ) {
                 Button("Replace", role: .destructive) { Task { await generate() } }
+            } message: {
+                Text("Questions from your interviews and your questions for the interviewer stay.")
             }
         }
         .padding(12)
@@ -106,6 +126,17 @@ struct PrepView: View {
         .listStyle(.inset)
     }
 
+    private var isBusy: Bool { isGenerating || isWritingQuestions }
+
+    /// Items that regenerating would replace.
+    private var replacedCount: Int {
+        store.prepItems.count - PrepItem.replacingGenerated(in: store.prepItems, with: []).count
+    }
+
+    private var hasQuestionsToAsk: Bool {
+        store.prepItems.contains { $0.category == PrepItem.yourQuestionsCategory }
+    }
+
     /// Generated categories in their usual order, then any others.
     private var categories: [String] {
         let present = Set(store.prepItems.map(\.category))
@@ -131,11 +162,33 @@ struct PrepView: View {
             let generator = try PrepGenerator(
                 client: client, profile: store.profile, stories: store.stories,
                 questionCount: questionCount, locale: Locale(identifier: store.settings.localeIdentifier))
-            store.prepItems = try await generator.generate { writtenSoFar = $0 }
+            let generated = try await generator.generate { writtenSoFar = $0 }
+            store.prepItems = PrepItem.replacingGenerated(in: store.prepItems, with: generated)
         } catch {
             self.error = error.localizedDescription
         }
         isGenerating = false
+    }
+
+    private func writeQuestionsToAsk() async {
+        guard let client = store.aiClient() else { return }
+        isWritingQuestions = true
+        error = nil
+        do {
+            let generator = try QuestionsToAskGenerator(
+                client: client, profile: store.profile, locale: Locale(identifier: store.settings.localeIdentifier))
+            var item = try await generator.generate()
+            if let index = store.prepItems.firstIndex(where: { $0.category == PrepItem.yourQuestionsCategory }) {
+                item.id = store.prepItems[index].id
+                store.prepItems[index] = item
+            } else {
+                store.prepItems.append(item)
+            }
+            expandedID = item.id
+        } catch {
+            self.error = error.localizedDescription
+        }
+        isWritingQuestions = false
     }
 }
 
@@ -153,7 +206,9 @@ private struct PrepRow: View {
                     TextField("Question", text: $item.question, axis: .vertical)
                         .font(.scaled(.body, scale))
                     Picker("Category", selection: $item.category) {
-                        ForEach(PrepItem.categories + ["Custom"], id: \.self) { Text($0).tag($0) }
+                        ForEach(PrepItem.categories + [PrepItem.yourQuestionsCategory, "Custom"], id: \.self) {
+                            Text($0).tag($0)
+                        }
                     }
                     .fixedSize()
                     TextEditor(text: $item.answer)
@@ -178,8 +233,16 @@ private struct PrepRow: View {
             }
             .padding(.vertical, 6)
         } label: {
-            Text(item.question.isEmpty ? "New question" : item.question)
-                .font(.scaled(.body, scale, weight: .semibold))
+            HStack(alignment: .firstTextBaseline) {
+                Text(item.question.isEmpty ? "New question" : item.question)
+                    .font(.scaled(.body, scale, weight: .semibold))
+                if let askedAt = item.askedAt {
+                    Text("Asked \(askedAt.formatted(.dateTime.day().month()))")
+                        .font(.scaled(.caption, scale))
+                        .foregroundStyle(.secondary)
+                        .help("A real interview asked this")
+                }
+            }
         }
     }
 }

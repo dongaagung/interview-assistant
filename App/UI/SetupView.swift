@@ -70,6 +70,9 @@ struct SetupView: View {
                     ForEach(HintStyle.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)
+                TextField(
+                    "Translate questions into", text: $store.settings.questionTranslationLanguage,
+                    prompt: Text("Off. Type a language, such as Indonesian"))
                 LabeledContent("Text size") {
                     TextSizeControl()
                 }

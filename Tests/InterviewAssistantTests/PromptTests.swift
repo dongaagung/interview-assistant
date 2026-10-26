@@ -26,8 +26,11 @@ struct PromptTests {
         ("hint", ["profile", "star_stories", "prep_sheet", "answer_language"]),
         ("hint_full", ["profile", "star_stories", "prep_sheet", "answer_language"]),
         ("prep_sheet", ["profile", "star_stories", "question_count", "interview_language", "answer_language"]),
-        ("practice_interviewer", ["profile", "interview_type", "question_count", "interview_language"]),
+        ("practice_interviewer", ["profile", "interview_type", "question_count", "interview_language", "prep_questions"]),
         ("feedback", ["profile", "star_stories", "answer_language"]),
+        ("translate_question", ["language"]),
+        ("questions_to_ask", ["profile", "interview_language"]),
+        ("prep_from_interview", ["profile", "star_stories", "prep_questions", "answer_language"]),
     ] as [(String, Set<String>)])
     func shippedPromptsMatchCode(name: String, variables: Set<String>) throws {
         let template = try PromptTemplate.load(name, from: Self.promptsDirectory)

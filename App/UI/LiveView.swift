@@ -34,6 +34,7 @@ struct LiveView: View {
                 .fixedSize()
                 .disabled(live.phase != .idle)
                 Spacer()
+                AnswerMeterView(meter: live.answer)
                 TextSizeControl()
                 startStopButton
             }
@@ -158,6 +159,7 @@ struct LiveView: View {
             profile: store.profile,
             stories: store.stories,
             hintStyle: store.settings.hintStyle,
+            translationLanguage: store.settings.questionTranslationLanguage,
             extraVocabulary: store.settings.extraVocabulary,
             prefersTermAccuracy: store.settings.prefersTermAccuracy,
             prepItems: store.prepItems,

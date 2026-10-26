@@ -67,6 +67,7 @@ private struct OverlayView: View {
                 .buttonStyle(.borderless)
                 .disabled(!live.canHint)
                 Spacer()
+                AnswerMeterView(meter: live.answer)
                 // The panel never takes focus from the meeting app, so ⌘= won't
                 // reach it; these buttons resize the text instead.
                 TextSizeControl()

@@ -227,3 +227,63 @@ struct HintTimingTests {
         #expect(abs((prepared.latency ?? 0) - 0.7) < 0.0001)
     }
 }
+
+struct AnswerMeterTests {
+    let start = Date(timeIntervalSince1970: 1_000)
+
+    func at(_ seconds: Double) -> Date { start.addingTimeInterval(seconds) }
+
+    /// What macOS speech recognition wrote for spoken fillers: SpeechTranscriber
+    /// turns "uh" into "ah"; Indonesian dictation turns "em" into "M".
+    @Test(arguments: [
+        ("So, um, I think, ah, the main thing was, um, scalability, and ah, you know, we moved to Kafka.", 5),
+        ("Jadi eh saya bekerja di bank anu selama lima tahun M terus saya pindah ke tim backend", 3),
+        ("Uh, hmm, apa namanya, erm, the outbox pattern", 4),
+    ])
+    func fillersAreCounted(text: String, count: Int) {
+        #expect(AnswerMeter.fillerCount(in: text) == count)
+    }
+
+    @Test(arguments: [
+        "Do you know Kafka? I used an umbrella term for the emulator.",
+        "Jadi saya pakai Spring Boot, terus kita deploy ke Kubernetes.",
+    ])
+    func ordinaryWordsAreNotFillers(text: String) {
+        #expect(AnswerMeter.fillerCount(in: text) == 0)
+    }
+
+    @Test func answerRunsFromFirstToLastWordsAndEndsWhenTheInterviewerSpeaks() {
+        var meter = AnswerMeter()
+        meter.candidateSpeaking(at: at(0))
+        meter.candidateSaid("Sure, last year I led, um, the payments migration", at: at(5))
+        #expect(meter.hasAnswer && meter.isRunning)
+        #expect(meter.duration(at: at(20)) == 20)
+        meter.candidateSpeaking(at: at(41))
+        meter.candidateSaid("and it cut our costs by thirty percent", at: at(42))
+        meter.interviewerSaid("Okay")
+        #expect(meter.isRunning, "a one-word reaction doesn't end the answer")
+        meter.interviewerSaid("Great, and how did you measure that?")
+        #expect(meter.hasAnswer && !meter.isRunning)
+        #expect(meter.duration(at: at(90)) == 42, "ends at the candidate's last words, not when the interviewer's text arrives")
+        #expect(meter.fillerCount == 1)
+    }
+
+    @Test func aShortReplyIsNotAnAnswer() {
+        var meter = AnswerMeter()
+        meter.candidateSpeaking(at: at(0))
+        meter.candidateSaid("Yeah, sure", at: at(1))
+        #expect(!meter.hasAnswer)
+        meter.interviewerSaid("So tell me about your current team.")
+        #expect(meter == AnswerMeter())
+    }
+
+    @Test func theNextAnswerStartsFresh() {
+        var meter = AnswerMeter()
+        meter.candidateSaid("Um, I mostly work on the backend with Java", at: at(0))
+        meter.interviewerSaid("And what about the frontend side?")
+        meter.candidateSpeaking(at: at(12))
+        #expect(meter.isRunning)
+        #expect(meter.fillerCount == 0)
+        #expect(meter.duration(at: at(15)) == 3)
+    }
+}

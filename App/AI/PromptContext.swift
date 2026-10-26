@@ -32,6 +32,14 @@ enum PromptContext {
         return items.map { "Q: \($0.question)\nA:\n\($0.answer)" }.joined(separator: "\n\n")
     }
 
+    /// The prep sheet's questions without answers, the ones real interviews asked first.
+    static func prepQuestions(_ items: [PrepItem]) -> String {
+        guard !items.isEmpty else { return "(None.)" }
+        let asked = items.filter { $0.askedAt != nil }.map { "- \($0.question) (asked in a real interview)" }
+        let others = items.filter { $0.askedAt == nil }.map { "- \($0.question)" }
+        return (asked + others).joined(separator: "\n")
+    }
+
     static func answerLanguage(_ profile: Profile) -> String {
         let language = profile.answerLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
         return language.isEmpty ? "the same language the interviewer uses" : language

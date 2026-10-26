@@ -6,6 +6,7 @@ struct PracticeView: View {
     @Environment(PracticeSession.self) private var practice
     @ViewState private var interviewType = InterviewType.behavioral
     @ViewState private var questionCount = 5
+    @ViewState private var usesPrepSheet = false
     @Environment(\.textScale) private var scale
 
     var body: some View {
@@ -31,6 +32,11 @@ struct PracticeView: View {
                     ForEach(InterviewType.allCases) { Text($0.label).tag($0) }
                 }
                 Stepper("Questions: \(questionCount)", value: $questionCount, in: 1...10)
+                Toggle(isOn: $usesPrepSheet) {
+                    Text("Ask questions from my prep sheet")
+                    Text("Questions your real interviews asked come first.")
+                }
+                .disabled(prepQuestions.isEmpty)
                 LabeledContent("Role") {
                     Text(roleSummary).foregroundStyle(.secondary)
                 }
@@ -63,6 +69,11 @@ struct PracticeView: View {
         return parts.isEmpty ? "Not set" : parts.joined(separator: " at ")
     }
 
+    /// Questions for the interviewer to ask: not the user's own questions for them.
+    private var prepQuestions: [PrepItem] {
+        store.prepItems.filter { $0.category != PrepItem.yourQuestionsCategory && !$0.question.isEmpty }
+    }
+
     private var configuration: PracticeSession.Configuration {
         PracticeSession.Configuration(
             interviewType: interviewType,
@@ -74,7 +85,8 @@ struct PracticeView: View {
             profile: store.profile,
             stories: store.stories,
             extraVocabulary: store.settings.extraVocabulary,
-            prefersTermAccuracy: store.settings.prefersTermAccuracy)
+            prefersTermAccuracy: store.settings.prefersTermAccuracy,
+            prepItems: usesPrepSheet ? prepQuestions : [])
     }
 
     // MARK: Interview

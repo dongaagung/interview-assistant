@@ -62,6 +62,9 @@ struct AppSettings: Codable, Equatable, Sendable {
     var prefersTermAccuracy = false
     /// Multiplier for caption, hint and practice text. See `TextScale`.
     var textScale = TextScale.standard
+    /// Language each hinted question is also shown in, such as "Indonesian".
+    /// Empty is off.
+    var questionTranslationLanguage = ""
     /// The one provider all AI features use.
     var aiProvider = AIProvider.anthropic
     /// Server address and models per OpenAI-compatible provider, kept when
@@ -91,6 +94,8 @@ struct AppSettings: Codable, Equatable, Sendable {
         prefersTermAccuracy = try container.decodeIfPresent(Bool.self, forKey: .prefersTermAccuracy)
             ?? defaults.prefersTermAccuracy
         textScale = try container.decodeIfPresent(Double.self, forKey: .textScale) ?? defaults.textScale
+        questionTranslationLanguage = try container.decodeIfPresent(String.self, forKey: .questionTranslationLanguage)
+            ?? defaults.questionTranslationLanguage
         aiProvider = try container.decodeIfPresent(AIProvider.self, forKey: .aiProvider) ?? defaults.aiProvider
         providerModels = try container.decodeIfPresent([AIProvider: ProviderModels].self, forKey: .providerModels)
             ?? defaults.providerModels

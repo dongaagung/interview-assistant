@@ -24,9 +24,11 @@ struct LLMRequest: Sendable {
         case feedback
         /// The prep sheet. JSON reply.
         case prep
+        /// A hinted question in the user's language. Latency-bound.
+        case translation
 
-        /// Detection and hints need speed; the rest need judgment.
-        var needsSpeed: Bool { self == .hint || self == .detection }
+        /// Detection, hints and translations need speed; the rest need judgment.
+        var needsSpeed: Bool { self == .hint || self == .detection || self == .translation }
     }
 
     var purpose: Purpose
