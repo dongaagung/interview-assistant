@@ -38,6 +38,18 @@ struct OpenAICompatibleRequestTests {
         #expect(body["max_tokens"] == nil)
     }
 
+    @Test func thinkingIsTurnedOffOnlyForLatencyBoundRequests() throws {
+        var deepSeek = client
+        deepSeek.disablesThinkingForSpeed = true
+        let hint = HintGenerator(client: deepSeek, systemPrompt: "S").request(question: "Q", context: "C")
+        let detection = QuestionDetector(client: deepSeek, systemPrompt: "S").request(turn: "T", context: "C")
+        let practice = PracticeInterviewer(client: deepSeek, systemPrompt: "S").request([.init(role: .user, content: "hi")])
+        #expect((try json(deepSeek.body(for: hint, stream: true, json: nil))["thinking"] as? [String: String]) == ["type": "disabled"])
+        #expect((try json(deepSeek.body(for: detection, stream: false, json: .object))["thinking"] as? [String: String]) == ["type": "disabled"])
+        #expect(try json(deepSeek.body(for: practice, stream: true, json: nil))["thinking"] == nil)
+        #expect(try json(client.body(for: hint, stream: true, json: nil))["thinking"] == nil, "other servers may reject the field")
+    }
+
     @Test func jsonModesStepDownFromSchemaToInstructions() throws {
         let request = QuestionDetector(client: client, systemPrompt: "S").request(turn: "T", context: "C")
         let schema = try json(client.body(for: request, stream: false, json: .schema))
@@ -106,6 +118,18 @@ struct OpenAICompatibleHTTPTests {
             ((try? JSONSerialization.jsonObject(with: body) as? [String: Any])?["response_format"] as? [String: Any])?["type"] as? String
         }
         #expect(formats == ["json_schema", "json_object"])
+    }
+
+    @Test func detectorSkipsJSONSchemasWhereTheyAreKnownRefused() async throws {
+        var deepSeek = client
+        deepSeek.supportsJSONSchema = false
+        ProviderStub.respond([(200, #"{"choices":[{"message":{"content":"{\"is_question\": true, \"question\": \"Why Kafka?\"}"}}]}"#)])
+        let question = try await QuestionDetector(client: deepSeek, systemPrompt: "S").detect(turn: "so why kafka", context: "")
+        #expect(question == "Why Kafka?")
+        let formats = ProviderStub.bodies.map { body in
+            ((try? JSONSerialization.jsonObject(with: body) as? [String: Any])?["response_format"] as? [String: Any])?["type"] as? String
+        }
+        #expect(formats == ["json_object"])
     }
 
     @Test func rejectedKeyExplainsWhereToFixIt() async {
@@ -216,6 +240,18 @@ struct ProviderSettingsTests {
             baseURL: AIProvider.ollama.defaultBaseURL, fastModel: "small", smartModel: "large")
         #expect(store.isAIReady)
         #expect(store.aiClient()?.providerName == "Ollama")
+    }
+
+    @Test func deepSeekAnswersHintsWithoutThinkingFirst() throws {
+        let store = store()
+        store.settings.aiProvider = .deepSeek
+        store.setAPIKey("sk-test", for: .deepSeek)
+        store.settings.providerModels[.deepSeek] = ProviderModels(
+            baseURL: AIProvider.deepSeek.defaultBaseURL, fastModel: "deepseek-flash", smartModel: "deepseek-flash")
+        let client = try #require(store.aiClient() as? OpenAICompatibleClient)
+        #expect(client.disablesThinkingForSpeed)
+        #expect(!client.supportsJSONSchema)
+        store.setAPIKey("", for: .deepSeek)
     }
 
     @Test func customServerNeedsAnAddress() {

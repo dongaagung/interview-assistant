@@ -142,7 +142,9 @@ final class AppStore {
             apiKey: key,
             fastModel: models.fastModel.trimmingCharacters(in: .whitespaces),
             smartModel: models.smartModel.trimmingCharacters(in: .whitespaces),
-            usesMaxCompletionTokens: provider.usesMaxCompletionTokens)
+            usesMaxCompletionTokens: provider.usesMaxCompletionTokens,
+            disablesThinkingForSpeed: provider.disablesThinkingForSpeed,
+            supportsJSONSchema: provider.supportsJSONSchema)
     }
 
     // MARK: Persistence

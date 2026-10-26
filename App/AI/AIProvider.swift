@@ -69,6 +69,14 @@ enum AIProvider: String, Codable, CaseIterable, Identifiable, CodingKeyRepresent
     /// OpenAI's newer models reject `max_tokens` in favor of this.
     var usesMaxCompletionTokens: Bool { self == .openAI }
 
+    /// DeepSeek's models think before answering unless told not to, which
+    /// measured 3 to 4 s before a hint's first word instead of 0.7 s.
+    var disablesThinkingForSpeed: Bool { self == .deepSeek }
+
+    /// DeepSeek refuses `json_schema` (400) but takes `json_object`, so
+    /// trying the schema first only costs a round trip.
+    var supportsJSONSchema: Bool { self != .deepSeek }
+
     var keyPlaceholder: String {
         switch self {
         case .anthropic: "sk-ant-…"

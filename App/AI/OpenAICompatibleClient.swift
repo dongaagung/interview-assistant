@@ -44,6 +44,9 @@ struct OpenAICompatibleClient: LLMClient {
     let fastModel: String
     let smartModel: String
     var usesMaxCompletionTokens = false
+    /// Sends `thinking: disabled` with hints and detection.
+    var disablesThinkingForSpeed = false
+    var supportsJSONSchema = true
     var session: URLSession = .shared
 
     // MARK: LLMClient
@@ -124,9 +127,10 @@ struct OpenAICompatibleClient: LLMClient {
         let maxTokens: Int?
         let maxCompletionTokens: Int?
         let responseFormat: JSONValue?
+        var thinking: JSONValue?
 
         enum CodingKeys: String, CodingKey {
-            case model, messages, stream
+            case model, messages, stream, thinking
             case maxTokens = "max_tokens"
             case maxCompletionTokens = "max_completion_tokens"
             case responseFormat = "response_format"
@@ -155,7 +159,8 @@ struct OpenAICompatibleClient: LLMClient {
             stream: stream,
             maxTokens: usesMaxCompletionTokens ? nil : request.maxTokens,
             maxCompletionTokens: usesMaxCompletionTokens ? request.maxTokens : nil,
-            responseFormat: responseFormat)
+            responseFormat: responseFormat,
+            thinking: disablesThinkingForSpeed && request.purpose.needsSpeed ? ["type": "disabled"] : nil)
     }
 
     func urlRequest(_ body: Body) throws -> URLRequest {
@@ -177,7 +182,8 @@ struct OpenAICompatibleClient: LLMClient {
     /// Opens the request, retrying once on overload and, for JSON requests,
     /// stepping down the JSON modes while the server refuses them (400).
     private func open<T>(_ request: LLMRequest, _ attempt: (JSONMode?) async throws -> T) async throws -> T {
-        let modes: [JSONMode?] = request.jsonSchema == nil ? [nil] : JSONMode.allCases
+        let modes: [JSONMode?] = request.jsonSchema == nil
+            ? [nil] : JSONMode.allCases.filter { $0 != .schema || supportsJSONSchema }
         for (index, mode) in modes.enumerated() {
             do {
                 do {
