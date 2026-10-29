@@ -23,6 +23,20 @@ struct TranscriptTests {
         #expect(transcript.lines.map(\.text) == ["What did you build with Kafka?"])
     }
 
+    /// Recognizers sometimes start a segment with the previous one's end mark
+    /// ("? I think…"), which would make a comment read as a question.
+    @Test func leadingPunctuationBelongsToThePreviousLine() {
+        var transcript = Transcript()
+        transcript.apply(.init(text: "so what will be the weakness", isFinal: true), from: .interviewer)
+        let line = transcript.apply(.init(text: "? I think the idempotency thing is a very core part", isFinal: true), from: .interviewer)
+        #expect(line?.text == "I think the idempotency thing is a very core part")
+        #expect(transcript.lines.map(\.text) == ["so what will be the weakness?", "I think the idempotency thing is a very core part"])
+        transcript.apply(.init(text: ", balance balance", isFinal: true), from: .interviewer)
+        #expect(transcript.lines.last?.text == "balance balance")
+        transcript.apply(.init(text: "? Could you", isFinal: false), from: .interviewer)
+        #expect(transcript.volatileText[.interviewer] == "Could you")
+    }
+
     @Test func emptyFinalAddsNoLine() {
         var transcript = Transcript()
         #expect(transcript.apply(.init(text: "  ", isFinal: true), from: .me) == nil)
@@ -41,6 +55,20 @@ struct EchoFilterTests {
     @Test func realAnswerIsNotEcho() {
         let lines = [TranscriptLine(speaker: .interviewer, text: "Tell me about a time you led a project.", at: now)]
         #expect(!EchoFilter.isLikelyEcho("Sure, last year I led our payments migration", at: now.addingTimeInterval(1), recent: lines))
+    }
+
+    /// The mic's final often lands before the meeting audio's final, while
+    /// the interviewer's words are still in progress.
+    @Test func repeatOfTheInterviewersInProgressWordsIsEcho() {
+        #expect(EchoFilter.isLikelyEcho(
+            "so did you use any help on your assistance", at: now, recent: [],
+            volatile: "I see so did you use any database on your on your assistance"))
+    }
+
+    @Test func interviewerLinesUpToSixSecondsAwayCount() {
+        let lines = [TranscriptLine(speaker: .interviewer, text: "Tell me about a time you led a project.", at: now)]
+        #expect(EchoFilter.isLikelyEcho("tell me about a time you led", at: now.addingTimeInterval(5), recent: lines))
+        #expect(EchoFilter.isLikelyEcho("tell me about a time you led", at: now.addingTimeInterval(-5), recent: lines))
     }
 
     @Test func oldInterviewerLinesDontCount() {
@@ -285,5 +313,15 @@ struct AnswerMeterTests {
         #expect(meter.isRunning)
         #expect(meter.fillerCount == 0)
         #expect(meter.duration(at: at(15)) == 3)
+    }
+}
+
+struct HintHeadlineTests {
+    @Test func headlineIsTheGuidesFirstCompleteLine() {
+        #expect(HintGenerator.headline(in: "**Kafka carried events between branch and core.**\n- **Setup**") == "Kafka carried events between branch and core.")
+        #expect(HintGenerator.headline(in: "**Kafka carried events") == nil, "still streaming")
+        #expect(HintGenerator.headline(in: "**Kafka carried events", complete: true) == "Kafka carried events")
+        #expect(HintGenerator.headline(in: "\n\n**Yes.**\n- point") == "Yes.", "a leading blank line isn't the headline")
+        #expect(HintGenerator.headline(in: "", complete: true) == nil)
     }
 }

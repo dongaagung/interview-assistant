@@ -9,24 +9,37 @@ struct Transcript: Equatable {
     /// Applies one recognizer update. Returns the line it finalized, if any.
     @discardableResult
     mutating func apply(_ update: TranscriptUpdate, from speaker: Speaker, at date: Date = .now) -> TranscriptLine? {
-        let text = update.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Recognizers sometimes start a segment with the previous one's end mark
+        // ("? I think…"), which would make the heuristic read a comment as a question.
+        let (mark, text) = Self.splitLeadingPunctuation(update.text)
         guard update.isFinal else {
             volatileText[speaker] = text.isEmpty ? nil : text
             return nil
         }
         volatileText[speaker] = nil
+        if let mark { attach(mark, to: speaker) }
         guard !text.isEmpty else { return nil }
-        // A final that is only punctuation ("?") belongs to the speaker's last line.
-        guard text.contains(where: { $0.isLetter || $0.isNumber }) else {
-            if let index = lines.lastIndex(where: { $0.speaker == speaker }), index == lines.count - 1,
-               lines[index].text.last.map({ !".?!".contains($0) }) ?? false {
-                lines[index].text += text
-            }
-            return nil
-        }
         let line = TranscriptLine(speaker: speaker, text: text, at: date)
         lines.append(line)
         return line
+    }
+
+    /// An end mark belongs to the speaker's last line, if that's the latest
+    /// line and has none yet.
+    private mutating func attach(_ mark: Character, to speaker: Speaker) {
+        guard let index = lines.indices.last, lines[index].speaker == speaker,
+              lines[index].text.last.map({ !".?!".contains($0) }) ?? false
+        else { return }
+        lines[index].text.append(mark)
+    }
+
+    /// Splits off the punctuation before the first word: the last end mark
+    /// among it, if any, and the words after it.
+    static func splitLeadingPunctuation(_ text: String) -> (mark: Character?, text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = trimmed.drop { $0.isWhitespace || ".?!,;:…".contains($0) }
+        let leading = trimmed[..<body.startIndex]
+        return (leading.last { ".?!".contains($0) }, String(body).trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     mutating func discardVolatile(_ speaker: Speaker) {
@@ -44,12 +57,19 @@ struct Transcript: Equatable {
 /// Without headphones the mic also hears the interviewer through the
 /// speakers. Drops "my" lines that repeat what the interviewer just said.
 enum EchoFilter {
-    static func isLikelyEcho(_ text: String, at date: Date, recent lines: [TranscriptLine]) -> Bool {
+    /// How far apart the mic's and the meeting audio's text for the same
+    /// words can land: each recognizer finalizes in its own time.
+    static let window: TimeInterval = 6
+
+    /// `volatile` is the interviewer's in-progress text: the mic's final
+    /// often lands before the meeting audio's final does.
+    static func isLikelyEcho(_ text: String, at date: Date, recent lines: [TranscriptLine], volatile: String? = nil) -> Bool {
         let words = Self.words(text)
         guard words.count >= 4 else { return false }
-        let heard = Set(lines.suffix(6)
-            .filter { $0.speaker == .interviewer && abs($0.at.timeIntervalSince(date)) < 4 }
+        var heard = Set(lines.suffix(6)
+            .filter { $0.speaker == .interviewer && abs($0.at.timeIntervalSince(date)) < window }
             .flatMap { Self.words($0.text) })
+        if let volatile { heard.formUnion(Self.words(volatile)) }
         guard !heard.isEmpty else { return false }
         let overlap = words.filter(heard.contains).count
         return Double(overlap) / Double(words.count) >= 0.8

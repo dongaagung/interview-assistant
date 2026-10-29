@@ -25,6 +25,15 @@ struct OpenAICompatibleRequestTests {
         #expect(messages[0]["content"] == "SYSTEM")
     }
 
+    @Test func fullAnswerFollowsTheGuidesHeadlineWhenGiven() throws {
+        let generator = HintGenerator(client: client, systemPrompt: "S")
+        let plain = generator.request(question: "Q", context: "C")
+        #expect(!plain.messages[0].content.contains("short_guide_headline"))
+        let led = generator.request(question: "Q", context: "C", interpretation: "Kafka carried events between branch and core.")
+        #expect(led.messages[0].content.hasSuffix("<short_guide_headline>\nKafka carried events between branch and core.\n</short_guide_headline>"))
+        #expect(led.system == plain.system, "the cached system prompt stays the same")
+    }
+
     @Test func practiceUsesTheSmartModel() throws {
         let request = PracticeInterviewer(client: client, systemPrompt: "S").request([.init(role: .user, content: "hi")])
         #expect(try json(client.body(for: request, stream: true, json: nil))["model"] as? String == "smart-model")

@@ -79,9 +79,7 @@ struct SetupView: View {
             } header: {
                 Text("Live hints")
             } footer: {
-                Text(store.settings.hintStyle == .guide
-                     ? "A bold answer line and a few short, decisive points to glance at. Text size also changes with ⌘= and ⌘−."
-                     : "A complete answer of about one minute, in your voice. Experience comes only from your profile and STAR stories.")
+                Text(hintStyleDescription)
             }
 
             Section {
@@ -123,6 +121,17 @@ struct SetupView: View {
         }
         .onAppear {
             extraTermsDraft = store.settings.extraVocabulary.joined(separator: ", ")
+        }
+    }
+
+    private var hintStyleDescription: String {
+        switch store.settings.hintStyle {
+        case .guide:
+            "A bold answer line and a few short, decisive points to glance at. Text size also changes with ⌘= and ⌘−."
+        case .fullAnswer:
+            "A complete answer of 1 to 1.5 minutes, in your voice. Experience comes only from your profile and STAR stories."
+        case .both:
+            "The short guide and the full answer side by side, both written at once. The floating overlay widens to fit them; made narrower, it stacks them."
         }
     }
 

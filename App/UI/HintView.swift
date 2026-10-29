@@ -41,6 +41,11 @@ private struct HintCard: View {
     let hint: LiveHint
     let compact: Bool
     @Environment(\.textScale) private var scale
+    @ViewState private var width: CGFloat = 0
+
+    /// Narrower than this, the guide and the full answer stack instead of
+    /// sitting side by side.
+    private static let sideBySideWidth: CGFloat = 520
 
     /// "First words 1.8 s after the question (listening 0.6 + Claude 1.2)",
     /// or nil before the first words. Asked by hand, it's time since asking.
@@ -70,10 +75,16 @@ private struct HintCard: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(compact ? 3 : 5)
             }
-            if hint.text.isEmpty && hint.isStreaming {
-                ProgressView().controlSize(.small)
+            if let fullAnswer = hint.fullAnswer {
+                let layout = width >= Self.sideBySideWidth
+                    ? AnyLayout(HStackLayout(alignment: .top, spacing: 16))
+                    : AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+                layout {
+                    column("Short guide", text: hint.text, isStreaming: hint.isStreaming)
+                    column("Full answer", text: fullAnswer, isStreaming: hint.isFullAnswerStreaming)
+                }
             } else {
-                MarkdownText(markdown: hint.text, style: compact ? .body : .title3)
+                answer(hint.text, isStreaming: hint.isStreaming)
             }
             if let error = hint.error {
                 Label(error, systemImage: "exclamationmark.triangle")
@@ -93,6 +104,26 @@ private struct HintCard: View {
                     .foregroundStyle(latency < 2 ? Color.secondary : Color.orange)
                     .help("Measured from when the interviewer stopped talking: listening for the end of the question, then waiting for Claude's first words.")
             }
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+    }
+
+    private func column(_ title: String, text: String, isStreaming: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title.uppercased())
+                .font(.scaled(.caption2, scale, weight: .semibold))
+                .foregroundStyle(.secondary)
+            answer(text, isStreaming: isStreaming)
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private func answer(_ text: String, isStreaming: Bool) -> some View {
+        if text.isEmpty && isStreaming {
+            ProgressView().controlSize(.small)
+        } else {
+            MarkdownText(markdown: text, style: compact ? .body : .title3)
         }
     }
 }

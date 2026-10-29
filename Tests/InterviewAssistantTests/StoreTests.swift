@@ -44,6 +44,26 @@ struct StoreTests {
         #expect(settings.textScale == TextScale.standard)
     }
 
+    @Test func bothStyleIsTheGuideWithTheFullAnswerBesideIt() throws {
+        #expect(HintStyle.allCases.map(\.label) == ["Short guide", "Full answer", "Both"])
+        #expect(HintStyle.both.templateName == HintStyle.guide.templateName)
+        #expect(HintStyle.both.maxTokens == HintStyle.guide.maxTokens)
+        #expect(HintStyle.both.companion == .fullAnswer)
+        #expect(HintStyle.guide.companion == nil)
+        #expect(HintStyle.fullAnswer.companion == nil)
+        var settings = AppSettings()
+        settings.hintStyle = .both
+        let saved = try JSONEncoder().encode(settings)
+        #expect(try JSONDecoder().decode(AppSettings.self, from: saved).hintStyle == .both)
+    }
+
+    @Test func sessionHintsKeepTheFullAnswerAndOlderOnesStillLoad() throws {
+        let old = #"{"id":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","question":"Q","text":"guide","at":0}"#
+        #expect(try JSONDecoder().decode(SessionHint.self, from: Data(old.utf8)).fullAnswer == nil)
+        let hint = SessionHint(question: "Q", text: "guide", fullAnswer: "full", at: Date(timeIntervalSince1970: 0))
+        #expect(try JSONDecoder().decode(SessionHint.self, from: JSONEncoder().encode(hint)) == hint)
+    }
+
     @Test func meetingAudioSourceCodable() throws {
         let source = MeetingAudioSource.app(bundleID: "us.zoom.xos", name: "Zoom")
         let data = try JSONEncoder().encode(source)

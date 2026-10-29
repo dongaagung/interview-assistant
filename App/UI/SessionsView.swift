@@ -155,10 +155,27 @@ private struct SessionDetail: View {
         ForEach(session.hints) { hint in
             VStack(alignment: .leading, spacing: 6) {
                 Text(hint.question).font(.scaled(.callout, scale)).foregroundStyle(.secondary)
-                MarkdownText(markdown: hint.text)
+                if let fullAnswer = hint.fullAnswer {
+                    HStack(alignment: .top, spacing: 16) {
+                        labeledAnswer("Short guide", hint.text)
+                        labeledAnswer("Full answer", fullAnswer)
+                    }
+                } else {
+                    MarkdownText(markdown: hint.text)
+                }
             }
             Divider()
         }
+    }
+
+    private func labeledAnswer(_ title: String, _ markdown: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title.uppercased())
+                .font(.scaled(.caption2, scale, weight: .semibold))
+                .foregroundStyle(.secondary)
+            MarkdownText(markdown: markdown)
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder

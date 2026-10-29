@@ -11,24 +11,35 @@ struct HintGenerator: Sendable {
     let systemPrompt: String
     var maxTokens = HintStyle.guide.maxTokens
 
-    func request(question: String, context: String) -> LLMRequest {
-        LLMRequest(
-            purpose: .hint,
-            system: systemPrompt,
-            messages: [.init(role: .user, content: """
-                <conversation_so_far>
-                \(context)
-                </conversation_so_far>
+    /// `interpretation` is the short guide's headline, when a full answer is
+    /// written beside a guide: it makes both read the question the same way.
+    func request(question: String, context: String, interpretation: String? = nil) -> LLMRequest {
+        var content = """
+            <conversation_so_far>
+            \(context)
+            </conversation_so_far>
 
-                <interviewer_question>
-                \(question)
-                </interviewer_question>
-                """)],
-            maxTokens: maxTokens)
+            <interviewer_question>
+            \(question)
+            </interviewer_question>
+            """
+        if let interpretation {
+            content += "\n\n<short_guide_headline>\n\(interpretation)\n</short_guide_headline>"
+        }
+        return LLMRequest(purpose: .hint, system: systemPrompt, messages: [.init(role: .user, content: content)], maxTokens: maxTokens)
     }
 
-    func stream(question: String, context: String) -> AsyncThrowingStream<String, any Error> {
-        client.stream(request(question: question, context: context))
+    func stream(question: String, context: String, interpretation: String? = nil) -> AsyncThrowingStream<String, any Error> {
+        client.stream(request(question: question, context: context, interpretation: interpretation))
+    }
+
+    /// A guide's bold first line, once a newline shows it's complete, or
+    /// whatever there is when the guide is `complete`.
+    static func headline(in text: String, complete: Bool = false) -> String? {
+        let text = text.drop(while: \.isWhitespace)
+        guard let end = text.firstIndex(of: "\n") ?? (complete ? text.endIndex : nil) else { return nil }
+        let line = text[..<end].replacing("**", with: "").trimmingCharacters(in: .whitespaces)
+        return line.isEmpty ? nil : line
     }
 
     func prewarm() async throws {

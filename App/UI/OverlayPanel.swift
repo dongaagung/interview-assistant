@@ -29,6 +29,22 @@ final class OverlayPanel: NSPanel {
 
     private static let frameName = "InterviewAssistantOverlay"
 
+    /// Wide enough for the short guide and the full answer side by side.
+    static let sideBySideWidth: CGFloat = 720
+
+    /// Grows the panel to `width` toward the left, so a panel in the
+    /// top-right corner stays on screen. A wider panel stays as it is.
+    func widen(to width: CGFloat) {
+        guard frame.width < width else { return }
+        var widened = frame
+        widened.origin.x -= width - widened.width
+        widened.size.width = width
+        if let visible = (screen ?? NSScreen.main)?.visibleFrame {
+            widened.origin.x = max(visible.minX, widened.origin.x)
+        }
+        setFrame(widened, display: true)
+    }
+
     private func placeInTopRightCorner() {
         guard let screen = NSScreen.main?.visibleFrame else { return }
         setFrameOrigin(NSPoint(x: screen.maxX - frame.width - 20, y: screen.maxY - frame.height - 20))
@@ -43,6 +59,9 @@ final class OverlayController {
     func show(_ live: LiveSession, store: AppStore) {
         if panel == nil {
             panel = OverlayPanel(content: OverlayView().environment(live).environment(store))
+        }
+        if store.settings.hintStyle.companion != nil {
+            panel?.widen(to: OverlayPanel.sideBySideWidth)
         }
         panel?.orderFrontRegardless()
     }

@@ -23,6 +23,8 @@ struct SessionHint: Codable, Identifiable, Equatable, Sendable {
     var id = UUID()
     var question: String
     var text: String
+    /// The full answer shown beside the short guide in the Both style.
+    var fullAnswer: String?
     var at: Date
 }
 

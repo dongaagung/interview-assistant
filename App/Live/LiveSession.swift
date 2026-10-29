@@ -8,10 +8,13 @@ struct LiveHint: Identifiable, Equatable {
     let turnID: UUID
     var question: String
     var text = ""
+    /// Both style: the full answer, streaming beside the short guide in `text`.
+    var fullAnswer: String?
     /// Unconfirmed hints are generated speculatively and stay hidden until
     /// the question detector says the turn really is a question.
     var isConfirmed: Bool
     var isStreaming = true
+    var isFullAnswerStreaming = false
     var error: String?
     /// When the interviewer stopped talking, from the audio level; for a
     /// hint asked by hand, when it was asked.
@@ -91,16 +94,23 @@ final class LiveSession {
     private var startTask: Task<Void, Never>?
     private var listeners: [Task<Void, Never>] = []
     private var hintTask: Task<Void, Never>?
+    private var fullAnswerTask: Task<Void, Never>?
     private var detectTask: Task<Void, Never>?
     private var keepWarmTask: Task<Void, Never>?
     private var autosaveTask: Task<Void, Never>?
     private var activeHintID: LiveHint.ID?
     private var turns = TurnTracker()
     private var hintGenerator: HintGenerator?
+    /// Both style: writes the full answer beside the guide.
+    private var fullAnswerGenerator: HintGenerator?
     private var detector: QuestionDetector?
     private var translator: QuestionTranslator?
     /// One per hint whose question is being or was translated.
     private var translationTasks: [LiveHint.ID: Task<Void, Never>] = [:]
+    /// Both style: wakes a hint's full answer once its guide's first line is in.
+    private var headlineWaiters: [LiveHint.ID: AsyncStream<String>.Continuation] = [:]
+    /// How long the full answer waits for the guide's headline before going its own way.
+    static let headlineWait: Duration = .milliseconds(1_500)
     private var prepMatcher = PrepMatcher(items: [])
     private var lastHintRequest = Date.distantPast
     private var sessionID = UUID()
@@ -150,6 +160,7 @@ final class LiveSession {
 
         prepMatcher = PrepMatcher(items: configuration.prepItems)
         translationTasks = [:]
+        headlineWaiters = [:]
         setUpAI(configuration)
 
         startupStatus = "Preparing speech recognition…"
@@ -225,11 +236,14 @@ final class LiveSession {
         keepWarmTask?.cancel()
         autosaveTask?.cancel()
         detectTask?.cancel()
-        hintTask?.cancel()
+        cancelHintStreams()
         translationTasks.values.forEach { $0.cancel() }
         translationTasks = [:]
         hints.removeAll { !$0.isConfirmed }
-        for index in hints.indices { hints[index].isStreaming = false }
+        for index in hints.indices {
+            hints[index].isStreaming = false
+            hints[index].isFullAnswerStreaming = false
+        }
         let session = snapshot(ended: true)
         phase = .idle
         return session
@@ -245,8 +259,8 @@ final class LiveSession {
             startedAt: startedAt,
             endedAt: ended ? .now : nil,
             transcript: transcript.lines,
-            hints: hints.filter { $0.isConfirmed && !$0.text.isEmpty }
-                .map { SessionHint(question: $0.question, text: $0.text, at: $0.questionEndedAt) })
+            hints: hints.filter { $0.isConfirmed && !($0.text.isEmpty && ($0.fullAnswer ?? "").isEmpty) }
+                .map { SessionHint(question: $0.question, text: $0.text, fullAnswer: $0.fullAnswer, at: $0.questionEndedAt) })
     }
 
     // MARK: Manual hints
@@ -280,19 +294,27 @@ final class LiveSession {
             let reason = configuration.aiProblem ?? "Set up an AI provider in Setup."
             warnings.append("No hints: \(reason) Captions still work.")
             hintGenerator = nil
+            fullAnswerGenerator = nil
             detector = nil
             translator = nil
             return
         }
         do {
-            let hintPrompt = try PromptTemplate.load(configuration.hintStyle.templateName).render([
+            let values = [
                 "profile": PromptContext.profile(configuration.profile),
                 "star_stories": PromptContext.stories(configuration.stories),
                 "prep_sheet": PromptContext.prepSheet(configuration.prepItems),
                 "answer_language": PromptContext.answerLanguage(configuration.profile),
-            ])
+            ]
+            let style = configuration.hintStyle
             hintGenerator = HintGenerator(
-                client: client, systemPrompt: hintPrompt, maxTokens: configuration.hintStyle.maxTokens)
+                client: client, systemPrompt: try PromptTemplate.load(style.templateName).render(values),
+                maxTokens: style.maxTokens)
+            fullAnswerGenerator = try style.companion.map { companion in
+                HintGenerator(
+                    client: client, systemPrompt: try PromptTemplate.load(companion.templateName).render(values),
+                    maxTokens: companion.maxTokens)
+            }
             detector = QuestionDetector(
                 client: client, systemPrompt: try PromptTemplate.load("question_detector").render([:]))
             let language = configuration.translationLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -367,13 +389,16 @@ final class LiveSession {
 
     private func handle(_ update: TranscriptUpdate, from speaker: Speaker) {
         let now = Date.now
-        if speaker == .me, update.isFinal,
-           EchoFilter.isLikelyEcho(update.text, at: now, recent: transcript.lines) {
-            transcript.discardVolatile(.me)
-            return
-        }
-        if speaker == .me, !update.isFinal, !update.text.trimmingCharacters(in: .whitespaces).isEmpty {
-            answer.candidateSpeaking(at: now)
+        if speaker == .me {
+            if EchoFilter.isLikelyEcho(update.text, at: now, recent: transcript.lines, volatile: transcript.volatileText[.interviewer]) {
+                transcript.discardVolatile(.me)
+                // An echo that started the answer timer wasn't an answer.
+                if !answer.hasAnswer { answer = AnswerMeter() }
+                return
+            }
+            if !update.isFinal, !update.text.trimmingCharacters(in: .whitespaces).isEmpty {
+                answer.candidateSpeaking(at: now)
+            }
         }
         guard let line = transcript.apply(update, from: speaker, at: now) else { return }
         switch speaker {
@@ -414,25 +439,33 @@ final class LiveSession {
         }
         guard let hintGenerator else { return }
         // A turn has at most one hint: a longer version of the same turn replaces it.
-        hintTask?.cancel()
+        cancelHintStreams()
         detectTask?.cancel()
         hints.removeAll { $0.turnID == turnID }
 
-        let hint = LiveHint(turnID: turnID, question: turn, isConfirmed: confirmed, questionEndedAt: questionEndedAt)
+        var hint = LiveHint(turnID: turnID, question: turn, isConfirmed: confirmed, questionEndedAt: questionEndedAt)
+        if fullAnswerGenerator != nil {
+            hint.fullAnswer = ""
+            hint.isFullAnswerStreaming = true
+        }
         hints.append(hint)
-        activeHintID = hint.id
+        let hintID = hint.id
+        activeHintID = hintID
         lastHintRequest = .now
         let context = PromptContext.recentTranscript(transcript.lines, maxCharacters: 3_000)
 
         hintTask = Task { [weak self] in
-            do {
-                for try await delta in hintGenerator.stream(question: turn, context: context) {
-                    self?.append(delta, to: hint.id)
-                }
-                self?.finish(hint.id, error: nil)
-            } catch {
-                // Cancelled requests surface as URLError.cancelled, not CancellationError.
-                self?.finish(hint.id, error: Task.isCancelled ? nil : error)
+            await self?.run(hintGenerator, question: turn, context: context, into: hintID, part: .main)
+        }
+        // Both style: the full answer follows the guide's reading of the question, so
+        // the two agree; it starts once the guide's first line is in, or after a short wait.
+        fullAnswerTask = fullAnswerGenerator.map { generator in
+            let (headlines, waiter) = AsyncStream.makeStream(of: String.self)
+            headlineWaiters[hintID] = waiter
+            return Task { [weak self] in
+                let headline = await Self.first(of: headlines, within: Self.headlineWait)
+                guard !Task.isCancelled else { return }
+                await self?.run(generator, question: turn, context: context, interpretation: headline, into: hintID, part: .fullAnswer)
             }
         }
 
@@ -440,19 +473,60 @@ final class LiveSession {
         detectTask = Task { [weak self] in
             do {
                 let question = try await detector.detect(turn: turn, context: context)
-                self?.resolve(hint.id, turnID: turnID, question: question)
+                self?.resolve(hintID, turnID: turnID, question: question)
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.warn(error)
-                self?.resolve(hint.id, turnID: turnID, question: nil)
+                self?.resolve(hintID, turnID: turnID, question: nil)
             }
         }
+    }
+
+    /// Which of a hint's texts a stream writes.
+    private enum HintPart {
+        case main, fullAnswer
+    }
+
+    private func run(
+        _ generator: HintGenerator, question: String, context: String, interpretation: String? = nil,
+        into hintID: LiveHint.ID, part: HintPart
+    ) async {
+        do {
+            for try await delta in generator.stream(question: question, context: context, interpretation: interpretation) {
+                append(delta, to: hintID, part: part)
+            }
+            finish(hintID, part: part, error: nil)
+        } catch {
+            // Cancelled requests surface as URLError.cancelled, not CancellationError.
+            finish(hintID, part: part, error: Task.isCancelled ? nil : error)
+        }
+    }
+
+    /// The stream's first value, or nil once `timeout` passes or it ends without one.
+    private nonisolated static func first(of headlines: AsyncStream<String>, within timeout: Duration) async -> String? {
+        await withTaskGroup(of: String?.self) { group in
+            group.addTask { await headlines.first { _ in true } }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
+
+    private func cancelHintStreams() {
+        hintTask?.cancel()
+        fullAnswerTask?.cancel()
+        headlineWaiters.values.forEach { $0.finish() }
+        headlineWaiters = [:]
     }
 
     /// A clear match with the prep sheet is evidence enough that the turn is
     /// a question, so the prepared answer shows without the detector.
     private func showPrepared(_ item: PrepItem, turnID: UUID, questionEndedAt: Date) {
-        hintTask?.cancel()
+        cancelHintStreams()
         detectTask?.cancel()
         hints.removeAll { $0.turnID == turnID }
         var hint = LiveHint(turnID: turnID, question: item.question, isConfirmed: true, questionEndedAt: questionEndedAt)
@@ -472,18 +546,28 @@ final class LiveSession {
             turns.confirmHint(for: turnID)
             translateIfShown(hintID)
         } else {
-            if activeHintID == hintID { hintTask?.cancel() }
+            if activeHintID == hintID { cancelHintStreams() }
             hints.remove(at: index)
         }
     }
 
-    private func append(_ delta: String, to hintID: LiveHint.ID) {
+    private func append(_ delta: String, to hintID: LiveHint.ID, part: HintPart) {
         guard let index = hints.firstIndex(where: { $0.id == hintID }) else { return }
         if hints[index].firstTokenAt == nil {
             hints[index].firstTokenAt = .now
             translateIfShown(hintID)
         }
-        hints[index].text += delta
+        switch part {
+        case .main:
+            hints[index].text += delta
+            if let waiter = headlineWaiters[hintID], let headline = HintGenerator.headline(in: hints[index].text) {
+                waiter.yield(headline)
+                waiter.finish()
+                headlineWaiters[hintID] = nil
+            }
+        case .fullAnswer:
+            hints[index].fullAnswer = (hints[index].fullAnswer ?? "") + delta
+        }
     }
 
     /// Translates a hint's question once the hint is on screen. Waiting for
@@ -506,9 +590,18 @@ final class LiveSession {
         hints[index].translation = translation
     }
 
-    private func finish(_ hintID: LiveHint.ID, error: (any Error)?) {
+    private func finish(_ hintID: LiveHint.ID, part: HintPart, error: (any Error)?) {
         guard let index = hints.firstIndex(where: { $0.id == hintID }) else { return }
-        hints[index].isStreaming = false
+        switch part {
+        case .main:
+            hints[index].isStreaming = false
+            if let waiter = headlineWaiters.removeValue(forKey: hintID) {
+                if let headline = HintGenerator.headline(in: hints[index].text, complete: true) { waiter.yield(headline) }
+                waiter.finish()
+            }
+        case .fullAnswer:
+            hints[index].isFullAnswerStreaming = false
+        }
         if let error, !(error is CancellationError) {
             hints[index].error = error.localizedDescription
         }
@@ -516,14 +609,15 @@ final class LiveSession {
 
     // MARK: Background work
 
-    /// Writes the hint system prompt to the prompt cache now, and again
+    /// Writes the hint system prompts to the prompt cache now, and again
     /// before the 5-minute cache TTL runs out during quiet stretches, so
     /// every question gets a cache hit and a warm connection.
     private func keepPromptCacheWarm() {
         guard let hintGenerator else { return }
+        let generators = [hintGenerator] + [fullAnswerGenerator].compactMap { $0 }
         keepWarmTask = Task { [weak self] in
             do {
-                try await hintGenerator.prewarm()
+                for generator in generators { try await generator.prewarm() }
             } catch {
                 self?.warn(error)
             }
@@ -531,7 +625,7 @@ final class LiveSession {
                 try? await Task.sleep(for: .seconds(240))
                 guard let self, !Task.isCancelled else { return }
                 if Date.now.timeIntervalSince(lastHintRequest) > 200 {
-                    try? await hintGenerator.prewarm()
+                    for generator in generators { try? await generator.prewarm() }
                 }
             }
         }
@@ -554,7 +648,10 @@ final class LiveSession {
         var signature = Hasher()
         signature.combine(transcript.lines.count)
         signature.combine(transcript.lines.last?.text)
-        for hint in hints where hint.isConfirmed { signature.combine(hint.text.count) }
+        for hint in hints where hint.isConfirmed {
+            signature.combine(hint.text.count)
+            signature.combine(hint.fullAnswer?.count)
+        }
         let value = signature.finalize()
         guard value != lastAutosaveSignature, let session = snapshot() else { return }
         lastAutosaveSignature = value

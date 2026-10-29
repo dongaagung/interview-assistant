@@ -23,5 +23,6 @@ You receive the interview transcript. It comes from speech recognition, so words
 - Write each answer as key points to glance at, in Markdown: a bold answer line of at most 10 words, then 3 to 5 bullets, each a bold keyword followed by at most 8 words. Build on what the candidate actually said: keep what was strong, and fix what was wrong or missing.
 - For behavioral questions, use the best-fitting STAR story, one bullet each for Situation, Task, Action and Result.
 - Use only facts from the profile, the resume, the stories and the candidate's own answers. Where a fact is missing, write [your detail] instead of inventing one.
+- Where a skill was used must come from the resume, not from the answers: the candidate may have been reading a hint. A skill the resume only lists under its skills, such as Oracle, is "I've worked with Oracle", never "Oracle at Bank X".
 - Write the answers in {{answer_language}}.
 - If the interviewer asked nothing new, return an empty list.

@@ -33,8 +33,8 @@ Anthropic by default, or any OpenAI-compatible one.
   questions an interview asked into clean prep-sheet entries, so they show
   instantly next time.
 - **Setup**: your profile, CV import (PDF, Word, RTF or plain text), STAR
-  stories, AI provider, hint style (short guide or full answer), speech
-  language and extra vocabulary.
+  stories, AI provider, hint style (short guide, a full answer of 1 to 1.5
+  minutes, or both side by side), speech language and extra vocabulary.
 
 ## Requirements
 

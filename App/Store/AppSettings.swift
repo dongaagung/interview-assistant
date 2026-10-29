@@ -21,6 +21,8 @@ enum HintStyle: String, Codable, CaseIterable, Identifiable, Sendable {
     case guide
     /// A complete first-person answer to say in your own voice.
     case fullAnswer
+    /// The short guide, with the full answer beside it.
+    case both
 
     var id: Self { self }
 
@@ -28,22 +30,28 @@ enum HintStyle: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .guide: "Short guide"
         case .fullAnswer: "Full answer"
+        case .both: "Both"
         }
     }
 
-    /// The template in prompts/ that writes this style.
+    /// The template in prompts/ that writes this style's main hint.
     var templateName: String {
         switch self {
-        case .guide: "hint"
+        case .guide, .both: "hint"
         case .fullAnswer: "hint_full"
         }
     }
 
     var maxTokens: Int {
         switch self {
-        case .guide: 600
+        case .guide, .both: 600
         case .fullAnswer: 1_200
         }
+    }
+
+    /// The style streamed beside the main hint at the same time, if any.
+    var companion: HintStyle? {
+        self == .both ? .fullAnswer : nil
     }
 }
 
